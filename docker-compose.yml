@@ -1,0 +1,86 @@
+version: '3'
+
+services:
+  app:
+    build: .
+    image: nope:slim-0.1.0
+    restart: always
+    environment:
+      - LANG=C.UTF-8
+    volumes:
+      - .:/opt/server
+    networks:
+      - web_nw
+      - db_nw
+    depends_on:
+      - db
+      # - redis
+    command:
+      ${RUN_CMD:-sh}
+
+  db:
+    image: mysql:8.0.21
+    restart: always
+    ports:
+      - ${DOCKER_DB_PORT:-3306}:3306
+    environment:
+      - TZ=Asia/Shanghai
+      - MYSQL_ROOT_PASSWORD=rootpass
+      - MYSQL_DATABASE=nope
+      - MYSQL_USER=nope
+      - MYSQL_PASSWORD=nope
+    volumes:
+      - ./confs/mysqld.cnf:/etc/mysql/mysql.conf.d/mysqld.cnf
+      - ./db/mysql/data:/var/lib/mysql
+    command:
+      # 将mysql8.0默认密码策略 修改为 原先 策略 (mysql8.0对其默认策略做了更改 会导致密码无法匹配)
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8
+      --collation-server=utf8_general_ci
+      --explicit_defaults_for_timestamp=true
+      --lower_case_table_names=1
+    networks:
+      - db_nw
+
+  nginx:
+    image: nginx:stable-alpine
+    restart: always
+    ports:
+      - ${DOCKER_PORT:-5000}:80
+    volumes:
+      - ./confs/nginx.conf:/etc/nginx/nginx.conf
+      - ./log/nginx:/var/log/nginx
+      - ./uploads:/var/www/static/assets
+    networks:
+      - web_nw
+    depends_on:
+      - app
+
+  celery:
+    image: nope:slim-0.1.0
+    restart: always
+    environment:
+      - LANG=C.UTF-8
+    volumes:
+      - .:/opt/server
+    networks:
+      - db_nw
+    depends_on:
+      - redis
+    command:
+      sh -c "celery -A nope worker -l info -P gevent"
+
+  redis:
+    image: redis:6.0.5-alpine
+    restart: always
+    volumes:
+      - ./db/redis:/data
+    networks:
+      - db_nw
+
+
+networks:
+  db_nw:
+    driver: bridge
+  web_nw:
+    driver: bridge
